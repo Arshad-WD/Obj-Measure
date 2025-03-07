@@ -49,12 +49,14 @@ class _DetectionChatScreenState extends State<DetectionChatScreen> {
       final imageBytes = await image.readAsBytes();
       final response = await _model.generateContent([
         Content.text(
-            "Analyze the given image. Provide a structured response with:\n"
-            "- **Short description:**\n"
-            "- **Estimated Height:** (if applicable)\n"
-            "- **Estimated Weight:** (if applicable)\n"
-            "- **Estimated Age:** (if applicable)\n"
-            "- **Nature or category:** (e.g., object, animal, person)."),
+            "Analyze the given image. Provide a structured response with the following details:\n\n"
+            "Short description:...\n"
+            "Estimated Height: ...\n"
+            "Estimated Width: ...\n"
+            "Estimated Weight: ...\n"
+            "Estimated Age: ...\n"
+            "Nature/Category: ...\n"
+            "Provide a two-time analysis report."),
         Content.data('image/jpeg', imageBytes),
       ]);
 
@@ -79,7 +81,7 @@ class _DetectionChatScreenState extends State<DetectionChatScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message, style: const TextStyle(color: Colors.white)),
-        backgroundColor: Colors.redAccent,
+        backgroundColor: const Color.fromARGB(255, 255, 133, 133),
         duration: const Duration(seconds: 2),
       ),
     );
@@ -98,6 +100,51 @@ class _DetectionChatScreenState extends State<DetectionChatScreen> {
     });
   }
 
+  List<TextSpan> _processResponse(String text) {
+    final List<TextSpan> textSpans = [];
+    final RegExp boldRegex =
+        RegExp(r'\*\*(.*?)\*\*'); // Matches text between **
+    int currentIndex = 0;
+
+    for (final match in boldRegex.allMatches(text)) {
+      // Add the text before the match
+      if (match.start > currentIndex) {
+        textSpans.add(
+          TextSpan(
+            text: text.substring(currentIndex, match.start),
+            style: const TextStyle(color: Colors.black, fontSize: 15),
+          ),
+        );
+      }
+
+      // Add the bold text
+      textSpans.add(
+        TextSpan(
+          text: match.group(1), // Text inside **
+          style: const TextStyle(
+            color: Colors.black,
+            fontSize: 15,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      );
+
+      currentIndex = match.end;
+    }
+
+    // Add the remaining text after the last match
+    if (currentIndex < text.length) {
+      textSpans.add(
+        TextSpan(
+          text: text.substring(currentIndex),
+          style: const TextStyle(color: Colors.black, fontSize: 15),
+        ),
+      );
+    }
+
+    return textSpans;
+  }
+
   Widget _buildMessageBubble(Map<String, dynamic> message) {
     bool isResponse = message['type'] == 'response';
     return Align(
@@ -106,7 +153,7 @@ class _DetectionChatScreenState extends State<DetectionChatScreen> {
         padding: const EdgeInsets.all(8),
         margin: const EdgeInsets.symmetric(vertical: 5, horizontal: 10),
         decoration: BoxDecoration(
-          color: isResponse ? Colors.grey[800] : Colors.blueAccent,
+          color: isResponse ? Colors.brown[200] : Colors.orange[300],
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
@@ -127,56 +174,25 @@ class _DetectionChatScreenState extends State<DetectionChatScreen> {
                 ),
               )
             : RichText(
-                text: _parseBoldText(message['content']),
+                text: TextSpan(
+                  children: _processResponse(message['content']),
+                ),
               ),
       ),
     );
   }
 
-  TextSpan _parseBoldText(String text) {
-    final List<TextSpan> spans = [];
-    final RegExp exp = RegExp(r"\*\*(.*?)\*\*"); // Detects **bold text**
-    int lastMatchEnd = 0;
-
-    for (final Match match in exp.allMatches(text)) {
-      if (match.start > lastMatchEnd) {
-        spans.add(TextSpan(
-          text: text.substring(lastMatchEnd, match.start),
-          style: const TextStyle(color: Colors.white, fontSize: 15),
-        ));
-      }
-
-      spans.add(TextSpan(
-        text: match.group(1),
-        style: const TextStyle(
-          fontWeight: FontWeight.bold,
-          color: Colors.white,
-          fontSize: 15,
-        ),
-      ));
-
-      lastMatchEnd = match.end;
-    }
-
-    if (lastMatchEnd < text.length) {
-      spans.add(TextSpan(
-        text: text.substring(lastMatchEnd),
-        style: const TextStyle(color: Colors.white, fontSize: 15),
-      ));
-    }
-
-    return TextSpan(children: spans);
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor:
+          const Color.fromARGB(255, 218, 202, 196), // Light skin-tone theme
       appBar: AppBar(
-        backgroundColor: Colors.blueAccent,
+        backgroundColor:
+            const Color.fromARGB(255, 248, 214, 163), // Warm accent color
         title: const Text(
           'AI Image Detection',
-          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black),
         ),
         centerTitle: true,
         elevation: 5,
@@ -195,15 +211,15 @@ class _DetectionChatScreenState extends State<DetectionChatScreen> {
           if (_loading)
             const Padding(
               padding: EdgeInsets.all(10.0),
-              child: CircularProgressIndicator(color: Colors.white),
+              child: CircularProgressIndicator(color: Colors.black),
             ),
         ],
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _pickImage,
-        backgroundColor: Colors.blueAccent,
+        backgroundColor: Colors.orange[400], // Warm accent color
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-        child: const Icon(Icons.image, color: Colors.white),
+        child: const Icon(Icons.image, color: Colors.black),
       ),
     );
   }
