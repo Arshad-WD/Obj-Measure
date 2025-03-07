@@ -1,10 +1,7 @@
 import 'dart:io';
-import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class DetectionChatScreen extends StatefulWidget {
   const DetectionChatScreen({super.key});
@@ -17,137 +14,172 @@ class _DetectionChatScreenState extends State<DetectionChatScreen> {
   final ImagePicker _picker = ImagePicker();
   final List<Map<String, dynamic>> _messages = [];
   final ScrollController _scrollController = ScrollController();
-  GenerativeModel? _model; // ✅ Nullable model
+  late final GenerativeModel _model;
+  bool _loading = false;
+
+  // Store API Key Securely in Production
+  final String apiKey = "AIzaSyCJWMLHBWLqzoCvP9wiltjnsMeION8TyuY";
 
   @override
   void initState() {
     super.initState();
-    _initializeModel();
+    _model = GenerativeModel(
+      model: 'gemini-2.0-flash',
+      apiKey: apiKey,
+    );
   }
 
-  /// ✅ Initialize the GenerativeModel safely
-  Future<void> _initializeModel() async {
-    String? apiKey = dotenv.env['GEMINI_API_KEY'];
-    if (apiKey == null || apiKey.isEmpty) {
-      debugPrint("❌ API key is missing. Check .env file.");
-      return;
-    }
-    setState(() {
-      _model = GenerativeModel(
-        model: 'gemini-2-vision-latest',
-        apiKey: apiKey,
-      );
-    });
-  }
-
-  /// ✅ Pick an image from the gallery
   Future<void> _pickImage() async {
-    final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
-    if (image != null) {
-      File imageFile = File(image.path);
-      _sendImageMessage(imageFile);
+    try {
+      final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
+      if (image == null) return;
+      _sendImageForAnalysis(File(image.path));
+    } catch (e) {
+      _showErrorMessage('Error picking image. Please try again.');
     }
   }
 
-  /// ✅ Process image and send to Gemini API
-  Future<void> _sendImageMessage(File image) async {
+  Future<void> _sendImageForAnalysis(File image) async {
     setState(() {
       _messages.add({'type': 'image', 'content': image});
+      _loading = true;
     });
-
-    // ✅ Ensure the model is initialized before use
-    if (_model == null) {
-      setState(() {
-        _messages.add({
-          'type': 'response',
-          'content': '❌ Model not initialized. Please restart the app.'
-        });
-      });
-      return;
-    }
 
     try {
       final imageBytes = await image.readAsBytes();
-      final response = await _model!.generateContent([
-        Content.text("Analyze this image and describe its contents."),
-        Content.data('image/jpeg', base64Encode(imageBytes) as Uint8List),
+      final response = await _model.generateContent([
+        Content.text(
+            "Analyze the given image. Provide a structured response with:\n"
+            "- **Short description:**\n"
+            "- **Estimated Height:** (if applicable)\n"
+            "- **Estimated Weight:** (if applicable)\n"
+            "- **Estimated Age:** (if applicable)\n"
+            "- **Nature or category:** (e.g., object, animal, person)."),
+        Content.data('image/jpeg', imageBytes),
       ]);
 
-      setState(() {
-        _messages.add({
-          'type': 'response',
-          'content': response.text ?? "ℹ️ No response received."
-        });
-      });
+      _addMessage(response.text ?? "No response received.", isResponse: true);
     } catch (e) {
-      setState(() {
-        _messages.add(
-            {'type': 'response', 'content': '❌ Error analyzing the image.'});
-      });
-      debugPrint("❌ Error: $e");
+      _showErrorMessage('Error analyzing the image.');
+    } finally {
+      setState(() => _loading = false);
+      _scrollToBottom();
     }
+  }
 
+  void _addMessage(String content, {bool isResponse = false}) {
+    setState(() {
+      _messages
+          .add({'type': isResponse ? 'response' : 'text', 'content': content});
+    });
     _scrollToBottom();
   }
 
-  /// ✅ Scrolls to the latest message
+  void _showErrorMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: const TextStyle(color: Colors.white)),
+        backgroundColor: Colors.redAccent,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+    _addMessage('❌ $message', isResponse: true);
+  }
+
   void _scrollToBottom() {
     Future.delayed(const Duration(milliseconds: 300), () {
-      _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 500),
-        curve: Curves.easeOut,
-      );
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 500),
+          curve: Curves.easeOut,
+        );
+      }
     });
   }
 
-  /// ✅ Build chat message bubbles
   Widget _buildMessageBubble(Map<String, dynamic> message) {
-    if (message['type'] == 'image') {
-      return Align(
-        alignment: Alignment.centerRight,
-        child: Container(
-          margin: const EdgeInsets.symmetric(vertical: 5, horizontal: 10),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(15),
-            child: Image.file(
-              message['content'],
-              width: 200,
-              height: 200,
-              fit: BoxFit.cover,
-            ),
-          ),
+    bool isResponse = message['type'] == 'response';
+    return Align(
+      alignment: isResponse ? Alignment.centerLeft : Alignment.centerRight,
+      child: Container(
+        padding: const EdgeInsets.all(8),
+        margin: const EdgeInsets.symmetric(vertical: 5, horizontal: 10),
+        decoration: BoxDecoration(
+          color: isResponse ? Colors.grey[800] : Colors.blueAccent,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.2),
+              blurRadius: 5,
+              spreadRadius: 1,
+            )
+          ],
         ),
-      );
-    } else if (message['type'] == 'response') {
-      return Align(
-        alignment: Alignment.centerLeft,
-        child: Container(
-          padding: const EdgeInsets.all(12),
-          margin: const EdgeInsets.symmetric(vertical: 5, horizontal: 10),
-          decoration: BoxDecoration(
-            color: Colors.grey[200],
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Text(
-            message['content'],
-            style: const TextStyle(color: Colors.black, fontSize: 16),
-          ),
+        child: message['type'] == 'image'
+            ? ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.file(
+                  message['content'],
+                  width: 170,
+                  height: 170,
+                  fit: BoxFit.cover,
+                ),
+              )
+            : RichText(
+                text: _parseBoldText(message['content']),
+              ),
+      ),
+    );
+  }
+
+  TextSpan _parseBoldText(String text) {
+    final List<TextSpan> spans = [];
+    final RegExp exp = RegExp(r"\*\*(.*?)\*\*"); // Detects **bold text**
+    int lastMatchEnd = 0;
+
+    for (final Match match in exp.allMatches(text)) {
+      if (match.start > lastMatchEnd) {
+        spans.add(TextSpan(
+          text: text.substring(lastMatchEnd, match.start),
+          style: const TextStyle(color: Colors.white, fontSize: 15),
+        ));
+      }
+
+      spans.add(TextSpan(
+        text: match.group(1),
+        style: const TextStyle(
+          fontWeight: FontWeight.bold,
+          color: Colors.white,
+          fontSize: 15,
         ),
-      );
+      ));
+
+      lastMatchEnd = match.end;
     }
-    return const SizedBox.shrink();
+
+    if (lastMatchEnd < text.length) {
+      spans.add(TextSpan(
+        text: text.substring(lastMatchEnd),
+        style: const TextStyle(color: Colors.white, fontSize: 15),
+      ));
+    }
+
+    return TextSpan(children: spans);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.black,
       appBar: AppBar(
-        backgroundColor: const Color.fromARGB(255, 0, 140, 255),
-        title: const Text('Image Detection Chat',
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+        backgroundColor: Colors.blueAccent,
+        title: const Text(
+          'AI Image Detection',
+          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+        ),
         centerTitle: true,
-        elevation: 4,
+        elevation: 5,
       ),
       body: Column(
         children: [
@@ -155,20 +187,23 @@ class _DetectionChatScreenState extends State<DetectionChatScreen> {
             child: ListView.builder(
               controller: _scrollController,
               itemCount: _messages.length,
-              itemBuilder: (context, index) {
-                return _buildMessageBubble(_messages[index]);
-              },
+              physics: const BouncingScrollPhysics(),
+              itemBuilder: (context, index) =>
+                  _buildMessageBubble(_messages[index]),
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.all(10.0),
-            child: FloatingActionButton(
-              onPressed: _pickImage,
-              backgroundColor: const Color.fromARGB(255, 0, 89, 255),
-              child: const Icon(Icons.image),
+          if (_loading)
+            const Padding(
+              padding: EdgeInsets.all(10.0),
+              child: CircularProgressIndicator(color: Colors.white),
             ),
-          ),
         ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _pickImage,
+        backgroundColor: Colors.blueAccent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+        child: const Icon(Icons.image, color: Colors.white),
       ),
     );
   }
